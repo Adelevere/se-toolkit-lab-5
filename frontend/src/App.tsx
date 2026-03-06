@@ -1,60 +1,57 @@
-import { useState, useEffect, useReducer, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
+import Dashboard from './Dashboard'
 import './App.css'
 
-const STORAGE_KEY = 'api_key'
+const STORAGE_KEY = 'api_token'
 
 interface Item {
   id: number
   type: string
   title: string
+  description?: string
   created_at: string
 }
 
-type FetchState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; items: Item[] }
-  | { status: 'error'; message: string }
-
-type FetchAction =
-  | { type: 'fetch_start' }
-  | { type: 'fetch_success'; data: Item[] }
-  | { type: 'fetch_error'; message: string }
-
-function fetchReducer(_state: FetchState, action: FetchAction): FetchState {
-  switch (action.type) {
-    case 'fetch_start':
-      return { status: 'loading' }
-    case 'fetch_success':
-      return { status: 'success', items: action.data }
-    case 'fetch_error':
-      return { status: 'error', message: action.message }
-  }
-}
+type Page = 'items' | 'dashboard'
 
 function App() {
   const [token, setToken] = useState(
     () => localStorage.getItem(STORAGE_KEY) ?? '',
   )
   const [draft, setDraft] = useState('')
-  const [fetchState, dispatch] = useReducer(fetchReducer, { status: 'idle' })
+  const [items, setItems] = useState<Item[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState<Page>('items')
 
   useEffect(() => {
     if (!token) return
 
-    dispatch({ type: 'fetch_start' })
+    setLoading(true)
+    setError(null)
 
-    fetch('/items/', {
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) {
+      setError('VITE_API_URL is not defined in .env file')
+      setLoading(false)
+      return
+    }
+
+    fetch(`${apiUrl}/items/`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
-      .then((data: Item[]) => dispatch({ type: 'fetch_success', data }))
-      .catch((err: Error) =>
-        dispatch({ type: 'fetch_error', message: err.message }),
-      )
+      .then((data: Item[]) => {
+        setItems(data)
+        setLoading(false)
+      })
+      .catch((err: Error) => {
+        setError(err.message)
+        setLoading(false)
+      })
   }, [token])
 
   function handleConnect(e: FormEvent) {
@@ -69,13 +66,15 @@ function App() {
     localStorage.removeItem(STORAGE_KEY)
     setToken('')
     setDraft('')
+    setItems([])
+    setError(null)
   }
 
   if (!token) {
     return (
       <form className="token-form" onSubmit={handleConnect}>
-        <h1>API Key</h1>
-        <p>Enter your API key to connect.</p>
+        <h1>API Token</h1>
+        <p>Enter your API token to connect.</p>
         <input
           type="password"
           placeholder="Token"
@@ -90,37 +89,58 @@ function App() {
   return (
     <div>
       <header className="app-header">
-        <h1>Items</h1>
+        <div className="nav-buttons">
+          <button
+            className={currentPage === 'items' ? 'active' : ''}
+            onClick={() => setCurrentPage('items')}
+          >
+            Items
+          </button>
+          <button
+            className={currentPage === 'dashboard' ? 'active' : ''}
+            onClick={() => setCurrentPage('dashboard')}
+          >
+            Dashboard
+          </button>
+        </div>
         <button className="btn-disconnect" onClick={handleDisconnect}>
           Disconnect
         </button>
       </header>
 
-      {fetchState.status === 'loading' && <p>Loading...</p>}
-      {fetchState.status === 'error' && <p>Error: {fetchState.message}</p>}
+      {currentPage === 'items' && (
+        <>
+          {loading && <p>Loading...</p>}
+          {error && <p>Error: {error}</p>}
 
-      {fetchState.status === 'success' && (
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>ItemType</th>
-              <th>Title</th>
-              <th>Created at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fetchState.items.map((item) => (
-              <tr key={item.id}>
-                <td>{item.id}</td>
-                <td>{item.type}</td>
-                <td>{item.title}</td>
-                <td>{item.created_at}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          {!loading && !error && (
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Title</th>
+                  <th>Description</th>
+                  <th>Created at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.id}</td>
+                    <td>{item.type}</td>
+                    <td>{item.title}</td>
+                    <td>{item.description || '-'}</td>
+                    <td>{item.created_at}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
+
+      {currentPage === 'dashboard' && <Dashboard token={token} />}
     </div>
   )
 }
